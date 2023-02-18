@@ -950,6 +950,7 @@ def train():
             # if args.visualize:
             if img_i == i_train[0]:
                 heatmaps_all.append(heat_map[img_i].cpu().detach().numpy())
+                prob_all.append(prob_map[img_i].cpu().detach().numpy())
                 heatnums_all.append((heat_num[img_i]/heat_num[img_i].max()).cpu().detach().numpy())
                 # writer.add_image("heat_map_"+str(img_i), heat_map[img_i].cpu(), global_step=i, dataformats='HW')
                 # writer.add_image("heat_num_"+str(img_i), (heat_num[img_i]/heat_num[img_i].max()).cpu(), global_step=i, dataformats='HW')
