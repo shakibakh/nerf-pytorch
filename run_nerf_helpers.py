@@ -277,10 +277,12 @@ def update_heat_map(pred, gts, img_i, ind, heat_map, heat_num, prob_map, L, T, u
         wnew = weighted_average_limited(wold, diff, L, hold)
     else:
         wnew = diff
+    wnew = torch.clip(wnew, min=0.0, max=1.0)
+
     heat_map[img_i][ind[:, 0], ind[:, 1]] = wnew
     heat_num[img_i][ind[:, 0], ind[:, 1]] += 1
 
-    prob_map[img_i][ind[:, 0], ind[:, 1]] =  (torch.exp(wnew * T) - 1) / torch.exp(torch.tensor(T))
+    prob_map[img_i][ind[:, 0], ind[:, 1]] =  (torch.exp(wnew * T) - 1)
 
     return heat_map, heat_num, prob_map
 
