@@ -237,3 +237,50 @@ def sample_pdf(bins, weights, N_samples, det=False, pytest=False):
     samples = bins_g[...,0] + t * (bins_g[...,1]-bins_g[...,0])
 
     return samples
+
+
+def weighted_average_limited(e_old, e_cur, L, n):
+    # based on eq 5.2 in "A real-time adaptive visual surveillance system for tracking low-resolution"
+    # alphab = max(1/(e+1), 1/L)
+    # alpha = torch.clip(1/(n+1), min=(1/L), max=1.0)
+    alpha = 0.25
+    e_new = alpha * e_old + (1 - alpha) * e_cur 
+    return e_new
+
+
+def update_heat_map(pred, gts, h, w, hwind, heat_map, heat_num, prob_map, L, e):
+    diff = (pred - gts) ** 2
+    diff = torch.sqrt(diff.sum(dim=-1) / 3)
+    ind = hwind[:, 0].cpu().int().numpy()
+    hind = h[:, 0].int().cpu().numpy()
+    wind = w[:, 0].int().cpu().numpy()
+
+    wold = heat_map[ind, hind, wind]
+    hold = heat_num[ind, hind, wind]
+    wnew = weighted_average_limited(wold, diff, L, hold)
+    heat_map[ind, hind, wind] = wnew
+    heat_num[ind, hind, wind] += 1
+
+    T = 100
+    prob_map[ind, hind, wind] = torch.exp(wnew / T)
+
+    return heat_map, heat_num, prob_map
+
+
+def update_heat_map(pred, gts, img_i, ind, heat_map, heat_num, prob_map, L, T, update_method="avg"):
+    diff = (pred - gts) ** 2
+    diff = torch.sqrt(diff.sum(dim=-1) / 3)
+
+    wold = heat_map[img_i][ind[:, 0], ind[:, 1]]
+    hold = heat_num[img_i][ind[:, 0], ind[:, 1]]
+    if update_method == "avg":
+        wnew = weighted_average_limited(wold, diff, L, hold)
+    else:
+        wnew = diff
+    heat_map[img_i][ind[:, 0], ind[:, 1]] = wnew
+    heat_num[img_i][ind[:, 0], ind[:, 1]] += 1
+
+    prob_map[img_i][ind[:, 0], ind[:, 1]] =  (torch.exp(wnew * T) - 1) / torch.exp(T)
+
+    return heat_map, heat_num, prob_map
+
