@@ -423,7 +423,7 @@ def config_parser():
 
     import configargparse
     parser = configargparse.ArgumentParser()
-    parser.add_argument('--config', is_config_file=True, default="./configs/hotdog.txt",
+    parser.add_argument('--config', is_config_file=True, default="./configs/flower.txt",
                         help='config file path')
     parser.add_argument("--expname", type=str, 
                         help='experiment name')
@@ -981,11 +981,11 @@ def train():
             print('Saved checkpoints at', path)
 
         if i%args.i_video==0 and i > 0:
-            moviebase = os.path.join(basedir, expname, '{:06d}_'.format(i))
-            imageio.mimwrite(moviebase + 'heatmap.mp4',  to8b(heatmaps_all), fps=10, quality=8)
-            imageio.mimwrite(moviebase + 'prob.mp4',  to8b(prob_all), fps=10, quality=8)
-            imageio.mimwrite(moviebase + 'heatnum.mp4',  to8b(heatnums_all), fps=10, quality=8)
-            imageio.mimwrite(moviebase + 'selected.mp4',  selected_points_all, fps=10, quality=8)
+            moviebase = os.path.join(basedir, expname)
+            imageio.mimwrite(moviebase + 'heatmap.mp4',  to8b(heatmaps_all), fps=20, quality=8)
+            imageio.mimwrite(moviebase + 'prob.mp4',  to8b(prob_all), fps=20, quality=8)
+            imageio.mimwrite(moviebase + 'heatnum.mp4',  to8b(heatnums_all), fps=20, quality=8)
+            imageio.mimwrite(moviebase + 'selected.mp4',  selected_points_all, fps=20, quality=8)
 
         if i%args.i_video==0 and i > 0:
             # Turn on testing mode
