@@ -282,7 +282,7 @@ def update_heat_map(pred, gts, img_i, ind, heat_map, heat_num, prob_map, L, T, u
     heat_map[img_i][ind[:, 0], ind[:, 1]] = wnew
     heat_num[img_i][ind[:, 0], ind[:, 1]] += 1
 
-    prob_map[img_i][ind[:, 0], ind[:, 1]] =  (torch.exp(wnew * T) - 1)
+    prob_map[img_i][ind[:, 0], ind[:, 1]] = (torch.exp(wnew * T))
 
     return heat_map, heat_num, prob_map
 

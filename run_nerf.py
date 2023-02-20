@@ -423,7 +423,7 @@ def config_parser():
 
     import configargparse
     parser = configargparse.ArgumentParser()
-    parser.add_argument('--config', is_config_file=True, default="./configs/flower.txt",
+    parser.add_argument('--config', is_config_file=True, default="./configs/fortress.txt",
                         help='config file path')
     parser.add_argument("--expname", type=str, 
                         help='experiment name')
@@ -455,14 +455,16 @@ def config_parser():
                         help='only take random rays from 1 image at a time')
     parser.add_argument("--image_sampling", action='store_true', 
                         help='whether to do image level sampling or not')
-    parser.add_argument("--sampling_type", type=str, default="none",
+    parser.add_argument("--sampling_type", type=str, default="multinomial",
                         help='options = none / multinomial / rejection / metropolis-hastings')
-    parser.add_argument("--sigma", type=float, default=2.0,
+    parser.add_argument("--sigma", type=float, default=200.0,
                         help='value of sigma in case metropolis-hastings is selected')
     parser.add_argument("--weight_exponential", type=float, default=1.0,
                         help='weight of exponential')
-    parser.add_argument("--initialize", action='store_true',
-                        help='initialize probability map ')
+    parser.add_argument("--adjust_weight_exponential", action='store_true',
+                        help='weight of exponential')
+    parser.add_argument("--initialize", type=str, default="none",
+                        help='initialize probability map none / loss / edge')
     parser.add_argument("--global_sampling", action='store_true',
                         help='global sampling at each iteration - slow ')
     parser.add_argument("--no_reload", action='store_true', 
@@ -534,11 +536,11 @@ def config_parser():
                         help='frequency of console printout and metric loggin')
     parser.add_argument("--i_img",     type=int, default=500, 
                         help='frequency of tensorboard image logging')
-    parser.add_argument("--i_weights", type=int, default=10000, 
+    parser.add_argument("--i_weights", type=int, default=20000, 
                         help='frequency of weight ckpt saving')
-    parser.add_argument("--i_testset", type=int, default=10000, 
+    parser.add_argument("--i_testset", type=int, default=20000, 
                         help='frequency of testset saving')
-    parser.add_argument("--i_video",   type=int, default=10000, 
+    parser.add_argument("--i_video",   type=int, default=20000, 
                         help='frequency of render_poses video saving')
 
     return parser
@@ -695,7 +697,9 @@ def train():
         prob_map = torch.ones((images.shape[0], H, W), dtype=torch.float, device=device)
         heat_num = torch.zeros((images.shape[0], H, W), dtype=torch.float, device=device)
 
-        if args.initialize:
+        # prob_map[:, :int(H/2), :] = 0.01
+
+        if args.initialize == "loss":
             for image_num in i_train:
                 print(image_num, len(i_train))
                 L = 4
@@ -705,7 +709,15 @@ def train():
                     rgb, disp, acc, extras = render(H, W, K, chunk=args.chunk, c2w=pose_train,
                                                 **render_kwargs_test)
                 coords_train = torch.stack(torch.meshgrid(torch.linspace(0, H-1, H), torch.linspace(0, W-1, W)), -1).reshape(-1, 2).long()
-                heat_map, heat_num, prob_map = update_heat_map(rgb.reshape(-1, 3), target_train.reshape(-1, 3), image_num, coords_train, heat_map, heat_num, prob_map, L, 0)
+                heat_map, heat_num, prob_map = update_heat_map(rgb.reshape(-1, 3), target_train.reshape(-1, 3), image_num, coords_train, heat_map, heat_num, prob_map, L, args.weight_exponential)
+        elif args.initialize == "edge":
+            for image_num in i_train:
+                print(image_num, len(i_train))
+                import cv2
+                edge_im = cv2.Canny((images[image_num]*255).astype(np.uint8), 100, 200) / 255.0
+                edge_im += 0.01
+                prob_map[image_num] = torch.from_numpy(edge_im).cuda()
+                heat_map[image_num] = torch.from_numpy(edge_im).cuda()
 
     if use_batching and args.image_sampling:
         # For random ray batching
@@ -770,6 +782,9 @@ def train():
     start = start + 1
     for i in trange(start, N_iters):
         time0 = time.time()
+
+        if args.adjust_weight_exponential:
+            args.weight_exponential += (i % 10000)
 
         # Sample random ray batch
         if use_batching:
@@ -891,6 +906,10 @@ def train():
                         next_sample[:, 0] = next_sample[:, 0] % (H-1)
                         next_sample[:, 1] = next_sample[:, 1] % (W-1)
                         next_sample = torch.round(next_sample).long()
+
+                        # from skimage import exposure
+                        # np_prob = prob_map[img_i].cpu().detach().numpy() * 255
+                        # prob_eq = torch.from_numpy(exposure.equalize_hist(np_prob)).cuda()\
                         
                         prev_heat = prob_map[img_i, prev_sample[:, 0], prev_sample[:, 1]]
                         next_heat = prob_map[img_i, next_sample[:, 0], next_sample[:, 1]]
@@ -898,6 +917,16 @@ def train():
                         accept_prob = next_heat / (prev_heat + 1e-7)
                         rand_image = torch.rand(accept_prob.shape)
                         accept = rand_image <= accept_prob
+
+                        # prev_heat_eq = prob_eq[prev_sample[:, 0], prev_sample[:, 1]]
+                        # next_heat_eq = prob_eq[next_sample[:, 0], next_sample[:, 1]]
+
+                        # accept_prob_eq = next_heat_eq / (prev_heat_eq + 1e-7)
+                        # rand_image_eq = torch.rand(accept_prob_eq.shape)
+                        # accept_eq = rand_image_eq <= accept_prob_eq
+
+                        print("accept_rate = ", accept.sum() / accept.numel())
+                        # print("accept_rate could be = ", accept_eq.sum() / accept_eq.numel())
 
                         select_coords = torch.where(accept.unsqueeze(-1).repeat(1, 2), next_sample, prev_sample)
                         prev_sample = select_coords   
@@ -950,7 +979,7 @@ def train():
             # if args.visualize:
             if img_i == i_train[0]:
                 heatmaps_all.append(heat_map[img_i].cpu().detach().numpy())
-                prob_all.append(heat_map[img_i].cpu().detach().numpy())
+                prob_all.append(prob_map[img_i].cpu().detach().numpy())
                 heatnums_all.append((heat_num[img_i]/heat_num[img_i].max()).cpu().detach().numpy())
                 # writer.add_image("heat_map_"+str(img_i), heat_map[img_i].cpu(), global_step=i, dataformats='HW')
                 # writer.add_image("heat_num_"+str(img_i), (heat_num[img_i]/heat_num[img_i].max()).cpu(), global_step=i, dataformats='HW')
