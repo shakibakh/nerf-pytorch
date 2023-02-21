@@ -267,22 +267,26 @@ def update_heat_map(pred, gts, h, w, hwind, heat_map, heat_num, prob_map, L, e):
     return heat_map, heat_num, prob_map
 
 
-def update_heat_map(pred, gts, img_i, ind, heat_map, heat_num, prob_map, L, T, update_method="avg"):
+def update_heat_map(pred, gts, img_i, ind, heat_map, heat_num, prob_map, L, T, update_method="avg", prob_method="none"):
     diff = (pred - gts) ** 2
     diff = torch.sqrt(diff.sum(dim=-1) / 3)
 
     wold = heat_map[img_i][ind[:, 0], ind[:, 1]]
     hold = heat_num[img_i][ind[:, 0], ind[:, 1]]
+
     if update_method == "avg":
         wnew = weighted_average_limited(wold, diff, L, hold)
     else:
         wnew = diff
+
     wnew = torch.clip(wnew, min=0.0, max=1.0)
 
     heat_map[img_i][ind[:, 0], ind[:, 1]] = wnew
     heat_num[img_i][ind[:, 0], ind[:, 1]] += 1
 
-    prob_map[img_i][ind[:, 0], ind[:, 1]] = (torch.exp(wnew * T))
-
+    if prob_method =="exponential":
+        prob_map[img_i][ind[:, 0], ind[:, 1]] = (torch.exp(wnew * T))
+    else:
+        prob_map[img_i][ind[:, 0], ind[:, 1]] = wnew
     return heat_map, heat_num, prob_map
 

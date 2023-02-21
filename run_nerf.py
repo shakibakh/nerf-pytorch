@@ -467,6 +467,10 @@ def config_parser():
                         help='initialize probability map none / loss / edge')
     parser.add_argument("--global_sampling", action='store_true',
                         help='global sampling at each iteration - slow ')
+    parser.add_argument("--update_method", type=str, default="none",
+                        help='update probability none / avg')
+    parser.add_argument("--prob_method", type=str, default="none",
+                        help='probability method none / exponential')
     parser.add_argument("--no_reload", action='store_true', 
                         help='do not reload weights from saved ckpt')
     parser.add_argument("--ft_path", type=str, default=None, 
@@ -698,6 +702,7 @@ def train():
         heat_num = torch.zeros((images.shape[0], H, W), dtype=torch.float, device=device)
 
         # prob_map[:, :int(H/2), :] = 0.01
+        print(args.initialize)
 
         if args.initialize == "loss":
             for image_num in i_train:
@@ -709,7 +714,12 @@ def train():
                     rgb, disp, acc, extras = render(H, W, K, chunk=args.chunk, c2w=pose_train,
                                                 **render_kwargs_test)
                 coords_train = torch.stack(torch.meshgrid(torch.linspace(0, H-1, H), torch.linspace(0, W-1, W)), -1).reshape(-1, 2).long()
-                heat_map, heat_num, prob_map = update_heat_map(rgb.reshape(-1, 3), target_train.reshape(-1, 3), image_num, coords_train, heat_map, heat_num, prob_map, L, args.weight_exponential)
+                heat_map, heat_num, prob_map = update_heat_map(rgb.reshape(-1, 3), target_train.reshape(-1, 3), image_num, 
+                    coords_train, heat_map, heat_num, prob_map, L, args.weight_exponential, update_method=args.update_method,
+                    prob_method=args.prob_method)
+                # print(heat_map[image_num].sum())
+                # plt.imshow(heat_map[image_num].cpu().detach())
+                # plt.savefig("pre-trained-loss-train"+str(image_num)+".png")
         elif args.initialize == "edge":
             for image_num in i_train:
                 print(image_num, len(i_train))
@@ -718,6 +728,7 @@ def train():
                 edge_im += 0.01
                 prob_map[image_num] = torch.from_numpy(edge_im).cuda()
                 heat_map[image_num] = torch.from_numpy(edge_im).cuda()
+
 
     if use_batching and args.image_sampling:
         # For random ray batching
@@ -906,10 +917,6 @@ def train():
                         next_sample[:, 0] = next_sample[:, 0] % (H-1)
                         next_sample[:, 1] = next_sample[:, 1] % (W-1)
                         next_sample = torch.round(next_sample).long()
-
-                        # from skimage import exposure
-                        # np_prob = prob_map[img_i].cpu().detach().numpy() * 255
-                        # prob_eq = torch.from_numpy(exposure.equalize_hist(np_prob)).cuda()\
                         
                         prev_heat = prob_map[img_i, prev_sample[:, 0], prev_sample[:, 1]]
                         next_heat = prob_map[img_i, next_sample[:, 0], next_sample[:, 1]]
@@ -917,16 +924,6 @@ def train():
                         accept_prob = next_heat / (prev_heat + 1e-7)
                         rand_image = torch.rand(accept_prob.shape)
                         accept = rand_image <= accept_prob
-
-                        # prev_heat_eq = prob_eq[prev_sample[:, 0], prev_sample[:, 1]]
-                        # next_heat_eq = prob_eq[next_sample[:, 0], next_sample[:, 1]]
-
-                        # accept_prob_eq = next_heat_eq / (prev_heat_eq + 1e-7)
-                        # rand_image_eq = torch.rand(accept_prob_eq.shape)
-                        # accept_eq = rand_image_eq <= accept_prob_eq
-
-                        print("accept_rate = ", accept.sum() / accept.numel())
-                        # print("accept_rate could be = ", accept_eq.sum() / accept_eq.numel())
 
                         select_coords = torch.where(accept.unsqueeze(-1).repeat(1, 2), next_sample, prev_sample)
                         prev_sample = select_coords   
@@ -943,6 +940,18 @@ def train():
                 batch_rays = torch.stack([rays_o, rays_d], 0)
                 target_s = target[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
 
+        # from skimage import exposure
+        # np_prob = prob_map[img_i].cpu().detach().numpy() * 255
+        # prob_eq = torch.from_numpy(exposure.equalize_hist(np_prob)).cuda()\
+
+        # prev_heat_eq = prob_eq[prev_sample[:, 0], prev_sample[:, 1]]
+        # next_heat_eq = prob_eq[next_sample[:, 0], next_sample[:, 1]]
+
+        # accept_prob_eq = next_heat_eq / (prev_heat_eq + 1e-7)
+        # rand_image_eq = torch.rand(accept_prob_eq.shape)
+        # accept_eq = rand_image_eq <= accept_prob_eq
+
+        
         #####  Core optimization loop  #####
         rgb, disp, acc, extras = render(H, W, K, chunk=args.chunk, rays=batch_rays,
                                                 verbose=i < 10, retraw=True,
@@ -972,9 +981,12 @@ def train():
                     rgb, disp, acc, extras = render(H, W, K, chunk=args.chunk, c2w=pose_train,
                                                 **render_kwargs_test)
                 coords_train = torch.stack(torch.meshgrid(torch.linspace(0, H-1, H), torch.linspace(0, W-1, W)), -1).reshape(-1, 2).long()
-                heat_map, heat_num, prob_map = update_heat_map(rgb.reshape(-1, 3), target_train.reshape(-1, 3), img_i, coords_train, heat_map, heat_num, prob_map, L, args.weight_exponential)
+                heat_map, heat_num, prob_map = update_heat_map(rgb.reshape(-1, 3), target_train.reshape(-1, 3), 
+                    img_i, coords_train, heat_map, heat_num, prob_map, L, args.weight_exponential, 
+                    update_method=args.update_method, prob_method=args.prob_method)
             else:
-                heat_map, heat_num, prob_map = update_heat_map(rgb, target_s, img_i, select_coords, heat_map, heat_num, prob_map, L, args.weight_exponential)
+                heat_map, heat_num, prob_map = update_heat_map(rgb, target_s, img_i, select_coords, heat_map, heat_num,
+                    prob_map, L, args.weight_exponential, update_method=args.update_method, prob_method=args.prob_method)
             # heat_map, heat_num, prob_map = update_heat_map(rgb, target_s, hi, wi, hwindi, heat_map, heat_num, prob_map, L, i)
             # if args.visualize:
             if img_i == i_train[0]:
