@@ -267,9 +267,14 @@ def update_heat_map(pred, gts, h, w, hwind, heat_map, heat_num, prob_map, L, e):
     return heat_map, heat_num, prob_map
 
 
-def update_heat_map(pred, gts, img_i, ind, heat_map, heat_num, prob_map, L, T, update_method="avg", prob_method="none"):
-    diff = (pred - gts) ** 2
-    diff = torch.sqrt(diff.sum(dim=-1) / 3)
+def update_heat_map(pred, gts, img_i, ind, heat_map, heat_num, prob_map, L, T, 
+                    update_method="avg", prob_method="none", diff_type="L2"):
+    if diff_type == "L2":
+        diff = (pred - gts) ** 2
+        diff = torch.sqrt(diff.sum(dim=-1) / 3)
+    else:
+        diff = torch.abs(pred - gts)
+        diff = (diff.sum(dim=-1) / 3)
 
     wold = heat_map[img_i][ind[:, 0], ind[:, 1]]
     hold = heat_num[img_i][ind[:, 0], ind[:, 1]]
@@ -289,4 +294,6 @@ def update_heat_map(pred, gts, img_i, ind, heat_map, heat_num, prob_map, L, T, u
     else:
         prob_map[img_i][ind[:, 0], ind[:, 1]] = wnew
     return heat_map, heat_num, prob_map
+
+    
 

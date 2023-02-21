@@ -471,6 +471,8 @@ def config_parser():
                         help='update probability none / avg')
     parser.add_argument("--prob_method", type=str, default="none",
                         help='probability method none / exponential')
+    parser.add_argument("--diff_type", type=str, default="none",
+                        help='diff type L2 / L1')
     parser.add_argument("--no_reload", action='store_true', 
                         help='do not reload weights from saved ckpt')
     parser.add_argument("--ft_path", type=str, default=None, 
@@ -537,6 +539,8 @@ def config_parser():
 
     # logging/saving options
     parser.add_argument("--i_print",   type=int, default=500, 
+                        help='frequency of console printout and metric loggin')
+    parser.add_argument("--i_metrics",   type=int, default=2000, 
                         help='frequency of console printout and metric loggin')
     parser.add_argument("--i_img",     type=int, default=500, 
                         help='frequency of tensorboard image logging')
@@ -716,7 +720,7 @@ def train():
                 coords_train = torch.stack(torch.meshgrid(torch.linspace(0, H-1, H), torch.linspace(0, W-1, W)), -1).reshape(-1, 2).long()
                 heat_map, heat_num, prob_map = update_heat_map(rgb.reshape(-1, 3), target_train.reshape(-1, 3), image_num, 
                     coords_train, heat_map, heat_num, prob_map, L, args.weight_exponential, update_method=args.update_method,
-                    prob_method=args.prob_method)
+                    prob_method=args.prob_method, diff_type=args.diff_type)
                 # print(heat_map[image_num].sum())
                 # plt.imshow(heat_map[image_num].cpu().detach())
                 # plt.savefig("pre-trained-loss-train"+str(image_num)+".png")
@@ -983,10 +987,11 @@ def train():
                 coords_train = torch.stack(torch.meshgrid(torch.linspace(0, H-1, H), torch.linspace(0, W-1, W)), -1).reshape(-1, 2).long()
                 heat_map, heat_num, prob_map = update_heat_map(rgb.reshape(-1, 3), target_train.reshape(-1, 3), 
                     img_i, coords_train, heat_map, heat_num, prob_map, L, args.weight_exponential, 
-                    update_method=args.update_method, prob_method=args.prob_method)
+                    update_method=args.update_method, prob_method=args.prob_method, diff_type=args.diff_type)
             else:
                 heat_map, heat_num, prob_map = update_heat_map(rgb, target_s, img_i, select_coords, heat_map, heat_num,
-                    prob_map, L, args.weight_exponential, update_method=args.update_method, prob_method=args.prob_method)
+                    prob_map, L, args.weight_exponential, update_method=args.update_method, prob_method=args.prob_method,
+                    diff_type=args.diff_type)
             # heat_map, heat_num, prob_map = update_heat_map(rgb, target_s, hi, wi, hwindi, heat_map, heat_num, prob_map, L, i)
             # if args.visualize:
             if img_i == i_train[0]:
@@ -1064,6 +1069,7 @@ def train():
             if args.image_sampling and args.sampling_type == "metropolis-hastings":
                 writer.add_scalar("accept_rate", accept.cpu().sum() / accept.numel(), i)
 
+        if i%args.i_metrics==0:
             # also report validation psnr
             # Log a rendered validation view to Tensorboard
             val_psnrs = 0
@@ -1078,6 +1084,19 @@ def train():
                 val_psnrs += psnr
             val_psnrs = val_psnrs / len(i_val)
             writer.add_scalar("val_psnr", val_psnrs, i)
+
+            train_psnrs = 0
+            for num_i in i_train:
+                target_val = torch.from_numpy(images[num_i]).cuda()
+                pose_val = poses[num_i, :3,:4]
+                with torch.no_grad():
+                    rgb, disp, acc, extras = render(H, W, K, chunk=args.chunk, c2w=pose_val,
+                                                **render_kwargs_test)
+
+                psnr = mse2psnr(img2mse(rgb, target_val))
+                train_psnrs += psnr
+            train_psnrs = train_psnrs / len(i_val)
+            writer.add_scalar("train_psnr", train_psnrs, i)
         """
             print(expname, i, psnr.numpy(), loss.numpy(), global_step.numpy())
             print('iter time {:.05f}'.format(dt))
