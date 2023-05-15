@@ -161,6 +161,13 @@ def get_rays(H, W, K, c2w):
     rays_o = c2w[:3,-1].expand(rays_d.shape)
     return rays_o, rays_d
 
+def get_rays_torch(dirs, c2w):
+    # Rotate ray directions from camera frame to the world frame
+    rays_d = torch.sum(dirs.unsqueeze(1) * c2w[:3,:3], -1)  # dot product, equals to: [c2w.dot(dir) for dir in dirs]
+    # Translate camera frame's origin to the world frame. It is the origin of all rays.
+    rays_o = c2w[:3,-1].expand(rays_d.shape)
+    return rays_o, rays_d
+
 
 def get_rays_np(H, W, K, c2w):
     i, j = np.meshgrid(np.arange(W, dtype=np.float32), np.arange(H, dtype=np.float32), indexing='xy')
@@ -268,7 +275,7 @@ def update_heat_map(pred, gts, h, w, hwind, heat_map, heat_num, prob_map, L, e):
 
 
 def update_heat_map(pred, gts, img_i, ind, heat_map, heat_num, prob_map, L, T, 
-                    update_method="avg", prob_method="none", diff_type="L2"):
+                    update_method="none", prob_method="none", diff_type="L1"):
     if diff_type == "L2":
         diff = (pred - gts) ** 2
         diff = torch.sqrt(diff.sum(dim=-1) / 3)
@@ -296,4 +303,13 @@ def update_heat_map(pred, gts, img_i, ind, heat_map, heat_num, prob_map, L, T,
     return heat_map, heat_num, prob_map
 
     
+def update_heat_map_loss(lossval, img_i, ind, heat_map, heat_num, prob_map):
+    
+    # wold = heat_map[img_i][ind[:, 0], ind[:, 1]]
+    # hold = heat_num[img_i][ind[:, 0], ind[:, 1]]
+    # wnew = torch.clip(wnew, min=0.0, max=1.0)
 
+    heat_map[img_i][ind[:, 0], ind[:, 1]] = lossval
+    heat_num[img_i][ind[:, 0], ind[:, 1]] += 1
+    prob_map[img_i][ind[:, 0], ind[:, 1]] = lossval
+    return heat_map, heat_num, prob_map
