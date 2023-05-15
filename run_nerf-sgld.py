@@ -541,7 +541,7 @@ def config_parser():
     # dataset options
     parser.add_argument("--dataset_type", type=str, default='llff', 
                         help='options: llff / blender / deepvoxels')
-    parser.add_argument("--testskip", type=int, default=1, 
+    parser.add_argument("--testskip", type=int, default=32, 
                         help='will load 1/N images from test/val sets, useful for large datasets like deepvoxels')
 
     ## deepvoxels flags
@@ -778,6 +778,7 @@ def train():
                                             **render_kwargs_test)
 
                 psnr = mse2psnr(img2mse(rgb, target_val))
+                print(psnr)
                 test_psnrs += psnr
             
         worksheet1 = workbook.add_worksheet()
@@ -1002,7 +1003,7 @@ def train():
                         select_coords[:, 0] = select_coords[:, 0] / (H-1)
                         select_coords[:, 1] = select_coords[:, 1] / (W-1)
                         select_coords = torch.clip(select_coords, min=0.0, max=1.0)
-                    select_coords.requires_grad = True
+                    
                 elif args.sampling_type == "mul":
                     heat_map_th = torch.clip(heat_map[img_i], min=(1e1)/(i+1), max=1)
                     batch1d = torch.multinomial(heat_map_th.flatten(), N_rand, False)
@@ -1024,7 +1025,7 @@ def train():
                     selected_points_all.append(selected_points.cpu())
                     # writer.add_image("sampled", selected_points, global_step=i, dataformats='HW')
 
-
+                select_coords.requires_grad = True
                 dirs = dfp(select_coords)
                 rays_o, rays_d = get_rays_torch(dirs, torch.Tensor(pose))  # (H, W, 3), (H, W, 3)
 
@@ -1070,18 +1071,26 @@ def train():
         loss.backward()
         optimizer.step()
 
+        # print(select_coords.grad.min().item(), 
+        #       select_coords.grad.max().item(), 
+        #       torch.abs(select_coords.grad).mean().item(), 
+        #       imp_loss.min().item(), 
+        #       imp_loss.max().item(),
+        #       imp_loss.mean().item())
+
         # update sgld
         if i >= args.precrop_iters and args.sampling_type == "sgld-uni":
+            aa = i 
             net_grad = select_coords.grad
             gradval = net_grad / (loss_per_pix.unsqueeze(-1) + 1e-7)
             gradval = gradval  * N_rand
             norm = torch.normal(mean=0, std=1, size=next_batch[img_i].shape, device=device) 
-            gamma = 1e-1 * torch.tensor([1/heat_map.shape[1], 1/heat_map.shape[2]], device=device) * np.exp(-5 * (i / N_iters))
-            gamma = torch.clip(gamma, min=1e-7)
+            gamma = 1e-2 * torch.tensor([1/heat_map.shape[1], 1/heat_map.shape[2]], device=device) * np.exp(-5 * (aa / N_iters))
+            gamma = torch.clip(gamma, min=5e-7)
             # print(torch.abs((gradval)).mean(), gamma)
-            next_batch[img_i] = (next_batch[img_i] + 1e-4 * gamma * gradval + torch.sqrt(2 * gamma) * norm).detach()
+            next_batch[img_i] = (next_batch[img_i] + 1e-4 / (aa+1) * gamma * gradval + torch.sqrt(2 * gamma) * norm).detach()
             # prev_sample = prev_sample.detach()
-            lowlossidx = imp_loss.unsqueeze(1) < (1e0) /(i+1)
+            lowlossidx = imp_loss.unsqueeze(1) < (1e3) /(aa+1)
 
             bound_idxs = torch.cat([next_batch[img_i] < 0, next_batch[img_i] > 1, lowlossidx], 1)
             bound_idxs = bound_idxs.sum(1)
