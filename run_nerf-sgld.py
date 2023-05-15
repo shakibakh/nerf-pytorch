@@ -25,6 +25,13 @@ np.random.seed(0)
 DEBUG = False
 
 
+def set_seed(seed):
+    torch.manual_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+
+set_seed(0)
+
 def batchify(fn, chunk):
     """Constructs a version of 'fn' that applies to smaller batches.
     """
@@ -215,10 +222,10 @@ def create_nerf(args):
 
     # Load checkpoints
     ckpts = []
-    # if args.ft_path is not None and args.ft_path!='None':
-    #     ckpts = [args.ft_path]
-    # else:
-    #     ckpts = [os.path.join(basedir, expname, f) for f in sorted(os.listdir(os.path.join(basedir, expname))) if 'tar' in f]
+    if args.ft_path is not None and args.ft_path!='None':
+        ckpts = [args.ft_path]
+    else:
+        ckpts = [os.path.join(basedir, expname, f) for f in sorted(os.listdir(os.path.join(basedir, expname))) if 'tar' in f]
 
     print('Found ckpts', ckpts)
     if len(ckpts) > 0 and not args.no_reload:
@@ -444,9 +451,9 @@ def config_parser():
 
     import configargparse
     parser = configargparse.ArgumentParser()
-    parser.add_argument('--config', is_config_file=True, default="./configs/lego.txt",
+    parser.add_argument('--config', is_config_file=True, default="./configs/chair.txt",
                         help='config file path')
-    parser.add_argument("--expname", type=str, 
+    parser.add_argument("--expname", type=str, default="exp",
                         help='experiment name')
     parser.add_argument("--basedir", type=str, default='./logs_gov/', 
                         help='where to store ckpts and logs')
@@ -476,7 +483,7 @@ def config_parser():
                         help='only take random rays from 1 image at a time')
     parser.add_argument("--image_sampling", action='store_true', 
                         help='whether to do image level sampling or not')
-    parser.add_argument("--sampling_type", type=str, default="uniform",
+    parser.add_argument("--sampling_type", type=str, default="mul",
                         help='options = none / sgld-uni / uniform ')
     parser.add_argument("--sigma", type=float, default=2.0,
                         help='value of sigma in case metropolis-hastings is selected')
@@ -534,7 +541,7 @@ def config_parser():
     # dataset options
     parser.add_argument("--dataset_type", type=str, default='llff', 
                         help='options: llff / blender / deepvoxels')
-    parser.add_argument("--testskip", type=int, default=32, 
+    parser.add_argument("--testskip", type=int, default=1, 
                         help='will load 1/N images from test/val sets, useful for large datasets like deepvoxels')
 
     ## deepvoxels flags
@@ -570,7 +577,7 @@ def config_parser():
                         help='frequency of weight ckpt saving')
     parser.add_argument("--i_testset", type=int, default=10000, 
                         help='frequency of testset saving')
-    parser.add_argument("--i_video",   type=int, default=2000, 
+    parser.add_argument("--i_video",   type=int, default=5000, 
                         help='frequency of render_poses video saving')
 
     return parser
@@ -740,27 +747,27 @@ def train():
                     print("The test results is already available for iteration", int(itr))
                     return
 
-            val_psnrs = 0
-            for num_i in i_val:
-                print("val", num_i)
-                target_val = torch.from_numpy(images[num_i]).cuda()
-                pose_val = torch.from_numpy(poses[num_i, :3,:4]).cuda()
-                rgb, disp, acc, extras = render(H, W, K, chunk=args.chunk, c2w=pose_val,
-                                            **render_kwargs_test)
+            # val_psnrs = 0
+            # for num_i in i_val:
+            #     print("val", num_i)
+            #     target_val = torch.from_numpy(images[num_i]).cuda()
+            #     pose_val = torch.from_numpy(poses[num_i, :3,:4]).cuda()
+            #     rgb, disp, acc, extras = render(H, W, K, chunk=args.chunk, c2w=pose_val,
+            #                                 **render_kwargs_test)
 
-                psnr = mse2psnr(img2mse(rgb, target_val))
-                val_psnrs += psnr
+            #     psnr = mse2psnr(img2mse(rgb, target_val))
+            #     val_psnrs += psnr
 
-            train_psnrs = 0
-            for num_i in i_train:
-                print("train", num_i)
-                target_val = torch.from_numpy(images[num_i]).cuda()
-                pose_val = torch.from_numpy(poses[num_i, :3,:4]).cuda()
-                rgb, disp, acc, extras = render(H, W, K, chunk=args.chunk, c2w=pose_val,
-                                            **render_kwargs_test)
+            # train_psnrs = 0
+            # for num_i in i_train:
+            #     print("train", num_i)
+            #     target_val = torch.from_numpy(images[num_i]).cuda()
+            #     pose_val = torch.from_numpy(poses[num_i, :3,:4]).cuda()
+            #     rgb, disp, acc, extras = render(H, W, K, chunk=args.chunk, c2w=pose_val,
+            #                                 **render_kwargs_test)
 
-                psnr = mse2psnr(img2mse(rgb, target_val))
-                train_psnrs += psnr
+            #     psnr = mse2psnr(img2mse(rgb, target_val))
+            #     train_psnrs += psnr
 
             test_psnrs = 0
             for num_i in i_test:
@@ -780,10 +787,10 @@ def train():
         worksheet1.write(0, 3, 'test psnr')
         worksheet1.write(0, 4, 'all psnr')
         worksheet1.write(1, 0, ckpts[-1].split("/")[-1][:-4])
-        worksheet1.write(1, 1, val_psnrs / len(i_val))
-        worksheet1.write(1, 2, train_psnrs / len(i_train))
+        # worksheet1.write(1, 1, val_psnrs / len(i_val))
+        # worksheet1.write(1, 2, train_psnrs / len(i_train))
         worksheet1.write(1, 3, test_psnrs / len(i_test))
-        worksheet1.write(1, 4, (val_psnrs + train_psnrs + test_psnrs)/(len(i_train)+len(i_val)+len(i_test)))
+        # worksheet1.write(1, 4, (val_psnrs + train_psnrs + test_psnrs)/(len(i_train)+len(i_val)+len(i_test)))
         workbook.close()
         return
 
@@ -976,13 +983,14 @@ def train():
                     select_coords[:, 1] = select_coords[:, 1] / (W-1)
                     select_coords = torch.clip(select_coords, min=0.0, max=1.0)
                 elif args.sampling_type == "sgld-uni":
-                    if i < 1000:# epoch_num < 1: #self.next_batch[idx].sum() == 0:
+                    if next_batch[img_i].sum() == 0:
                         select_coords = torch.rand([N_rand, 2], device=device, dtype=torch.float32)
                         select_coords = select_coords * torch.tensor([H-1, W-1], device=device)
                         select_coords = select_coords.round() #+ 0.5
                         selected_coords_long = select_coords.long()
                         target_s = target[selected_coords_long[:, 0], selected_coords_long[:, 1]]  # (N_rand, 3)
-                        select_coords = select_coords / (H-1)
+                        select_coords[:, 0] = select_coords[:, 0] / (H-1)
+                        select_coords[:, 1] = select_coords[:, 1] / (W-1)
                         select_coords = torch.clip(select_coords, min=0.0, max=1.0)
                         next_batch[img_i] = select_coords
                     else:
@@ -995,13 +1003,26 @@ def train():
                         select_coords[:, 1] = select_coords[:, 1] / (W-1)
                         select_coords = torch.clip(select_coords, min=0.0, max=1.0)
                     select_coords.requires_grad = True
+                elif args.sampling_type == "mul":
+                    heat_map_th = torch.clip(heat_map[img_i], min=(1e1)/(i+1), max=1)
+                    batch1d = torch.multinomial(heat_map_th.flatten(), N_rand, False)
+                    select_coords = torch.ones((N_rand, 2), device=device)
+                    select_coords[:, 1] =  (batch1d % heat_map[img_i].shape[1]) 
+                    select_coords[:, 0] = (batch1d / heat_map[img_i].shape[1]).int() 
+                    select_coords = select_coords.round() 
+                    selected_coords_long = select_coords.long()
+                    target_s = target[selected_coords_long[:, 0], selected_coords_long[:, 1]]  # (N_rand, 3)
+                    select_coords[:, 0] = select_coords[:, 0] / (H-1)
+                    select_coords[:, 1] = select_coords[:, 1] / (W-1)
+                    # pix_idxs[:, 0:1] = pix_idxs[:, 0:1] + ((torch.rand([hparams.batch_size, 1], device=self.device)) / (float(self.train_dataset.img_wh[1])))
+                    # pix_idxs[:, 1:2] = pix_idxs[:, 1:2] + ((torch.rand([hparams.batch_size, 1], device=self.device)) / (float(self.train_dataset.img_wh[0])))
+                    select_coords = torch.clip(select_coords, min=0.0, max=1.0)
                 
-
-                # if img_i == i_train[0]:
-                #     selected_points = torch.zeros((H, W))
-                #     selected_points[select_coords[:, 0], select_coords[:, 1]] = 1
-                #     selected_points_all.append(selected_points.cpu())
-                #     # writer.add_image("sampled", selected_points, global_step=i, dataformats='HW')
+                if img_i == i_train[0]:
+                    selected_points = torch.zeros((H, W))
+                    selected_points[selected_coords_long[:, 0], selected_coords_long[:, 1]] = 1
+                    selected_points_all.append(selected_points.cpu())
+                    # writer.add_image("sampled", selected_points, global_step=i, dataformats='HW')
 
 
                 dirs = dfp(select_coords)
@@ -1053,32 +1074,15 @@ def train():
         if i >= args.precrop_iters and args.sampling_type == "sgld-uni":
             net_grad = select_coords.grad
             gradval = net_grad / (loss_per_pix.unsqueeze(-1) + 1e-7)
-            gradval = gradval / (heat_map.sum() + 1e-7)  
+            gradval = gradval  * N_rand
             norm = torch.normal(mean=0, std=1, size=next_batch[img_i].shape, device=device) 
-            # gamma = 1e-5 * np.exp(-1 * (4*i/(args.n_steps)))
-            # gamma = np.maximum(gamma, 5e-6)
-            gamma = 1e-7
-            next_batch[img_i] = (next_batch[img_i] + gamma * gradval + np.sqrt(2 * gamma) * norm).detach()
+            gamma = 1e-1 * torch.tensor([1/heat_map.shape[1], 1/heat_map.shape[2]], device=device) * np.exp(-5 * (i / N_iters))
+            gamma = torch.clip(gamma, min=1e-7)
+            # print(torch.abs((gradval)).mean(), gamma)
+            next_batch[img_i] = (next_batch[img_i] + 1e-4 * gamma * gradval + torch.sqrt(2 * gamma) * norm).detach()
             # prev_sample = prev_sample.detach()
-            lowlossidx = imp_loss.unsqueeze(1) < (1e-2) /((i+1) / 1000) #heat_map.mean()
-            # sigma = ((N_iters - i))/ (2*N_iters - 1)
-            # sigma = np.clip(sigma, 0.1, 0.5)
-            # norm = torch.normal(mean=0, std=sigma, size=next_batch[img_i].shape, device=device) 
-            # lowlossidx = imp_loss.unsqueeze(-1) < 1e-2
-            # net_grad = select_coords.grad #/ self.scaler._scale
-            # # if do_it:
-            # # #     # undo imprortance sampling factor:
-            # #     net_grad = (net_grad * imp_loss.unsqueeze(1)) / c
-            # # #     # normalize the gradients 
-            # net_grad = net_grad / heat_map[img_i].sum()
-            # # #     # account for log
-            # gradval = net_grad / (loss_per_pix.unsqueeze(-1) + 1e-7)
-            # gradcoeff = 1e-2# / (self.current_epoch + 1)
-            # alpha = 2e2 / (i + 1)
-            # # alpha = 2e-1 / (torch.sqrt(torch.linalg.norm(net_grad, dim=-1, keepdim=True))+ 1e-7)
-            # delta_p = 0.5 * sigma * gradcoeff * gradval + norm
-            # # print((alpha * delta_p).max().item(), gradval.max().item(), norm.max().item(), sigma, select_coords.grad.max().item(), loss_per_pix.max().item())
-            # next_batch[img_i] = (next_batch[img_i] + alpha * delta_p).detach()
+            lowlossidx = imp_loss.unsqueeze(1) < (1e0) /(i+1)
+
             bound_idxs = torch.cat([next_batch[img_i] < 0, next_batch[img_i] > 1, lowlossidx], 1)
             bound_idxs = bound_idxs.sum(1)
             bound_idxs = torch.where(bound_idxs)[0]
@@ -1152,7 +1156,7 @@ def train():
             imageio.mimwrite(moviebase + 'heatmap.mp4',  to8b(heatmaps_all), fps=20, quality=8)
             imageio.mimwrite(moviebase + 'prob.mp4',  to8b(prob_all), fps=20, quality=8)
             imageio.mimwrite(moviebase + 'heatnum.mp4',  to8b(heatnums_all), fps=20, quality=8)
-            # imageio.mimwrite(moviebase + 'selected.mp4',  selected_points_all, fps=20, quality=8)
+            imageio.mimwrite(moviebase + 'selected.mp4',  selected_points_all, fps=20, quality=8)
 
         # if i%args.i_testset==0 and i > 0:
         #     # Turn on testing mode
